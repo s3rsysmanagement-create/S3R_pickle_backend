@@ -6,49 +6,29 @@ datasource db {
   provider = "postgresql"
 }
 
-enum RoleName {
-  ADMIN
-  CASHIER
-}
-
-enum PaymentMethod {
-  CASH
-  GCASH
-  CARD
-  BANK_TRANSFER
-  VENMO
-}
-
-enum TransactionStatus {
-  COMPLETED
-  CANCELLED
-  UNPAID
-}
-
 model Role {
   id        String   @id @default(uuid())
   name      RoleName @unique
-  users     User[]
   createdAt DateTime @default(now())
+  users     User[]
 
   @@map("roles")
 }
 
 model User {
-  id            String   @id @default(uuid())
-  email         String   @unique
-  passwordHash  String   @map("password_hash")
-  firstName     String   @map("first_name")
-  lastName      String   @map("last_name")
-  roleId        String   @map("role_id")
-  role          Role     @relation(fields: [roleId], references: [id])
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  transactions Transaction[]
-  expenses     Expense[]
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String        @map("password_hash")
+  firstName    String        @map("first_name")
+  lastName     String        @map("last_name")
+  roleId       String        @map("role_id")
+  isActive     Boolean       @default(true) @map("is_active")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
   auditLogs    AuditLog[]
+  expenses     Expense[]
+  transactions Transaction[]
+  role         Role          @relation(fields: [roleId], references: [id])
 
   @@map("users")
 }
@@ -66,12 +46,12 @@ model Player {
 }
 
 model Court {
-  id          String        @id @default(uuid())
-  name        String
-  code        String        @unique
-  isActive    Boolean       @default(true) @map("is_active")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  id           String        @id @default(uuid())
+  name         String
+  isActive     Boolean       @default(true) @map("is_active")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  code         String        @unique
   transactions Transaction[]
 
   @@map("courts")
@@ -91,23 +71,23 @@ model Rate {
 }
 
 model Transaction {
-  id              String            @id @default(uuid())
-  transactionCode String            @unique @map("transaction_code")
-  cashierId       String            @map("cashier_id")
-  cashier         User              @relation(fields: [cashierId], references: [id])
-  courtId         String            @map("court_id")
-  court           Court             @relation(fields: [courtId], references: [id])
-  transactionDate DateTime          @map("transaction_date")
-  startTime       DateTime          @map("start_time")
-  endTime         DateTime          @map("end_time")
-  total           Decimal           @db.Decimal(10, 2)
-  paymentMethod   PaymentMethod     @map("payment_method")
-  status          TransactionStatus @default(COMPLETED)
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
-  players         TransactionPlayer[]
-  payments        Payment[]
+  id              String              @id @default(uuid())
+  transactionCode String              @unique @map("transaction_code")
+  cashierId       String              @map("cashier_id")
+  courtId         String              @map("court_id")
+  transactionDate DateTime            @map("transaction_date")
+  startTime       DateTime            @map("start_time")
+  endTime         DateTime            @map("end_time")
+  total           Decimal             @db.Decimal(10, 2)
+  paymentMethod   PaymentMethod       @map("payment_method")
+  status          TransactionStatus   @default(COMPLETED)
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
   auditLogs       AuditLog[]
+  payments        Payment[]
+  players         TransactionPlayer[]
+  cashier         User                @relation(fields: [cashierId], references: [id])
+  court           Court               @relation(fields: [courtId], references: [id])
 
   @@index([transactionDate])
   @@index([cashierId])
@@ -119,13 +99,13 @@ model Transaction {
 model TransactionPlayer {
   id            String      @id @default(uuid())
   transactionId String      @map("transaction_id")
-  transaction   Transaction @relation(fields: [transactionId], references: [id])
   playerId      String      @map("player_id")
-  player        Player      @relation(fields: [playerId], references: [id])
   rateId        String      @map("rate_id")
-  rate          Rate        @relation(fields: [rateId], references: [id])
   amount        Decimal     @db.Decimal(10, 2)
   createdAt     DateTime    @default(now()) @map("created_at")
+  player        Player      @relation(fields: [playerId], references: [id])
+  rate          Rate        @relation(fields: [rateId], references: [id])
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
 
   @@unique([transactionId, playerId, rateId])
   @@index([transactionId])
@@ -136,11 +116,11 @@ model TransactionPlayer {
 model Payment {
   id            String        @id @default(uuid())
   transactionId String        @map("transaction_id")
-  transaction   Transaction   @relation(fields: [transactionId], references: [id])
   type          PaymentMethod
   amount        Decimal       @db.Decimal(10, 2)
   paidAt        DateTime      @default(now()) @map("paid_at")
   reference     String?
+  transaction   Transaction   @relation(fields: [transactionId], references: [id])
 
   @@index([transactionId])
   @@index([type])
@@ -151,9 +131,9 @@ model ExpenseCategory {
   id        String    @id @default(uuid())
   name      String    @unique
   isActive  Boolean   @default(true) @map("is_active")
-  expenses  Expense[]
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
+  expenses  Expense[]
 
   @@map("expense_categories")
 }
@@ -161,16 +141,16 @@ model ExpenseCategory {
 model Expense {
   id            String          @id @default(uuid())
   categoryId    String          @map("category_id")
-  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
   description   String
   amount        Decimal         @db.Decimal(10, 2)
   expenseDate   DateTime        @map("expense_date")
   paymentMethod PaymentMethod   @map("payment_method")
   notes         String?
   createdById   String          @map("created_by_id")
-  createdBy     User            @relation(fields: [createdById], references: [id])
   createdAt     DateTime        @default(now()) @map("created_at")
   updatedAt     DateTime        @updatedAt @map("updated_at")
+  category      ExpenseCategory @relation(fields: [categoryId], references: [id])
+  createdBy     User            @relation(fields: [createdById], references: [id])
 
   @@index([expenseDate])
   @@index([categoryId])
@@ -178,18 +158,37 @@ model Expense {
 }
 
 model AuditLog {
-  id            String      @id @default(uuid())
-  userId        String?     @map("user_id")
-  user          User?       @relation(fields: [userId], references: [id])
-  transactionId String?     @map("transaction_id")
-  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  id            String       @id @default(uuid())
+  userId        String?      @map("user_id")
+  transactionId String?      @map("transaction_id")
   action        String
-  entityType    String      @map("entity_type")
-  entityId      String?     @map("entity_id")
+  entityType    String       @map("entity_type")
+  entityId      String?      @map("entity_id")
   description   String
-  createdAt     DateTime    @default(now()) @map("created_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  user          User?        @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([transactionId])
   @@map("audit_logs")
+}
+
+enum RoleName {
+  ADMIN
+  CASHIER
+}
+
+enum PaymentMethod {
+  CASH
+  GCASH
+  CARD
+  BANK_TRANSFER
+  VENMO
+}
+
+enum TransactionStatus {
+  COMPLETED
+  CANCELLED
+  UNPAID
 }
