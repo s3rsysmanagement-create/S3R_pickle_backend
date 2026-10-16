@@ -18,6 +18,8 @@ type AnalyticsPeriod = 'daily' | 'monthly' | 'yearly';
 
 interface AnalyticsQuery {
   period?: AnalyticsPeriod;
+  month?: string;
+  year?: string;
 }
 
 export async function analyticsRoutes(app: FastifyInstance) {
@@ -55,6 +57,12 @@ export async function analyticsRoutes(app: FastifyInstance) {
     },
     async (request, reply) => {
       const period = request.query.period ?? 'daily';
+      const month = request.query.month === undefined
+        ? undefined
+        : Number(request.query.month);
+      const year = request.query.year === undefined
+        ? undefined
+        : Number(request.query.year);
 
       if (
         period !== 'daily' &&
@@ -68,9 +76,28 @@ export async function analyticsRoutes(app: FastifyInstance) {
         });
       }
 
+      if (
+        (month === undefined) !== (year === undefined) ||
+        (month !== undefined &&
+          (!Number.isInteger(month) ||
+            month < 1 ||
+            month > 12 ||
+            year === undefined ||
+            !Number.isInteger(year) ||
+            year < 1900 ||
+            year > 9999))
+      ) {
+        return reply.status(400).send({
+          success: false,
+          message: 'Provide a valid month (1-12) and year (1900-9999) together.',
+        });
+      }
+
       const data = await getOverview(
         prisma,
         period,
+        month,
+        year,
       );
 
       return successResponse(data);

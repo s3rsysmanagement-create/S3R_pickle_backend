@@ -264,8 +264,14 @@ function formatYearlySortKey(
 export async function getOverview(
   prisma: PrismaClient,
   period: AnalyticsPeriod = 'daily',
+  selectedMonth?: number,
+  selectedYear?: number,
 ) {
   const now = new Date();
+  const hasSelectedMonth = selectedMonth !== undefined && selectedYear !== undefined;
+  const reportingDate = hasSelectedMonth
+    ? new Date(selectedYear!, selectedMonth! - 1, 1)
+    : now;
 
   /* =======================================================
      REPORTING PERIOD
@@ -274,7 +280,10 @@ export async function getOverview(
   let periodStart: Date;
   let periodEnd: Date;
 
-  if (period === 'daily') {
+  if (hasSelectedMonth) {
+    periodStart = startOfMonth(reportingDate);
+    periodEnd = addMonths(periodStart, 1);
+  } else if (period === 'daily') {
     periodStart =
       startOfDay(now);
 
@@ -397,14 +406,19 @@ export async function getOverview(
      ======================================================= */
 
   if (period === 'daily') {
-    const dates =
+    const dates = hasSelectedMonth
+      ? Array.from(
+        { length: new Date(selectedYear!, selectedMonth!, 0).getDate() },
+        (_, index) => new Date(selectedYear!, selectedMonth! - 1, index + 1),
+      )
+      :
       Array.from(
         {
           length: 7,
         },
         (_, index) => {
           const date =
-            new Date(now);
+            new Date(reportingDate);
 
           date.setHours(
             0,
@@ -491,7 +505,7 @@ export async function getOverview(
         },
         (_, index) => {
           const date =
-            new Date(now);
+            new Date(reportingDate);
 
           date.setDate(1);
 
@@ -580,7 +594,7 @@ export async function getOverview(
         },
         (_, index) => {
           const date =
-            new Date(now);
+            new Date(reportingDate);
 
           date.setMonth(
             0,
@@ -878,7 +892,9 @@ export async function getOverview(
      ======================================================= */
 
   const periodLabel =
-    period === 'daily'
+    hasSelectedMonth
+      ? reportingDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : period === 'daily'
       ? 'Today'
       : period === 'monthly'
         ? 'This Month'

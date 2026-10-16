@@ -49,4 +49,43 @@ describe('getOverview', () => {
     expect(result.cashierSummary).toEqual(expect.arrayContaining([expect.objectContaining({ name: expect.any(String), value: expect.any(Number) })]));
     expect(result.playerAnalytics).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'player-1', value: 2 })]));
   });
+
+  it('filters overview metrics to the selected month and year', async () => {
+    const paymentAggregateQueries: Array<{
+      where: { paidAt: { gte: Date; lt: Date } };
+    }> = [];
+    const prisma = {
+      payment: {
+        aggregate: async (query: { where: { paidAt: { gte: Date; lt: Date } } }) => {
+          paymentAggregateQueries.push(query);
+          return { _sum: { amount: 0 } };
+        },
+        groupBy: async () => [],
+      },
+      expense: {
+        aggregate: async () => ({ _sum: { amount: 0 } }),
+      },
+      transaction: {
+        count: async () => 0,
+        groupBy: async () => [],
+      },
+      transactionPlayer: {
+        count: async () => 0,
+        groupBy: async () => [],
+      },
+      court: { findUnique: async () => null },
+      user: { findUnique: async () => null },
+    } as any;
+
+    const result = await getOverview(prisma, 'daily', 2, 2024);
+
+    expect(result.stats).toContainEqual(
+      expect.objectContaining({ label: 'Revenue February 2024' }),
+    );
+    expect(paymentAggregateQueries[0].where.paidAt.gte).toEqual(new Date(2024, 1, 1));
+    expect(paymentAggregateQueries[0].where.paidAt.lt).toEqual(new Date(2024, 2, 1));
+    expect(paymentAggregateQueries).toHaveLength(30);
+    expect(paymentAggregateQueries[1].where.paidAt.gte).toEqual(new Date(2024, 1, 1));
+    expect(paymentAggregateQueries[29].where.paidAt.lt).toEqual(new Date(2024, 2, 1));
+  });
 });
