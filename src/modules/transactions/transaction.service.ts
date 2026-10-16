@@ -5,6 +5,7 @@ import type {
   CreateTransactionInput,
   PaymentMethod,
   TransactionResponse,
+  UpdateTransactionInput,
   UpdateTransactionPlayerRatesInput,
 } from './transaction.types.js';
 
@@ -245,6 +246,123 @@ export async function getTransactionById(prisma: PrismaClient, id: string) {
   }
 
   return transaction;
+}
+
+export async function updateTransaction(
+  prisma: PrismaClient,
+  id: string,
+  input: UpdateTransactionInput,
+  cashier: AuthenticatedUser,
+) {
+  if (!cashier || !['ADMIN', 'CASHIER'].includes(cashier.role)) {
+    throw unauthorized('Authentication required');
+  }
+
+  const transaction = await prisma.transaction.findUnique({ where: { id } });
+  if (!transaction) {
+    throw notFound('Transaction not found');
+  }
+  if (transaction.status === 'CANCELLED') {
+    throw badRequest('Cannot modify a cancelled transaction');
+  }
+
+  let courtId = transaction.courtId;
+  if (input.courtId !== undefined) {
+    const court = await prisma.court.findUnique({ where: { id: input.courtId } });
+    if (!court || !court.isActive) {
+      throw notFound('Court not found or inactive');
+    }
+    courtId = court.id;
+  }
+
+  let total = transaction.total.toString();
+  let rateMap = new Map<string, { amount: { toString(): string } }>();
+  if (input.players !== undefined) {
+    const playerIds = [...new Set(input.players.map((player) => player.playerId))];
+    const players = await prisma.player.findMany({
+      where: { id: { in: playerIds }, isActive: true },
+      select: { id: true },
+    });
+    if (players.length !== playerIds.length) {
+      throw badRequest('One or more players are invalid or inactive');
+    }
+
+    const rateIds = [...new Set(input.players.map((player) => player.rateId))];
+    const rates = await prisma.rate.findMany({
+      where: { id: { in: rateIds }, isActive: true },
+    });
+    if (rates.length !== rateIds.length) {
+      throw badRequest('One or more rates are invalid or inactive');
+    }
+    rateMap = new Map(rates.map((rate) => [rate.id, rate]));
+
+    total = calculateTotalFromRates(
+      input.players.map((player) => {
+        const rate = rateMap.get(player.rateId);
+        if (!rate) {
+          throw badRequest('Invalid rate for player');
+        }
+        return { amount: rate.amount.toString() };
+      }),
+    );
+  }
+
+  const paymentMethod = input.paymentMethod ?? transaction.paymentMethod;
+  await prisma.$transaction(async (tx) => {
+    if (input.players !== undefined) {
+      await tx.transactionPlayer.deleteMany({ where: { transactionId: id } });
+      await Promise.all(
+        input.players.map((player) => {
+          const rate = rateMap.get(player.rateId);
+          if (!rate) {
+            throw badRequest('Invalid rate for player');
+          }
+          return tx.transactionPlayer.create({
+            data: {
+              transactionId: id,
+              playerId: player.playerId,
+              rateId: player.rateId,
+              amount: rate.amount.toString(),
+            },
+          });
+        }),
+      );
+    }
+
+    await tx.transaction.update({
+      where: { id },
+      data: {
+        ...(input.courtId !== undefined ? { courtId } : {}),
+        ...(input.paymentMethod !== undefined ? { paymentMethod } : {}),
+        ...(input.players !== undefined ? { total } : {}),
+      },
+    });
+
+    if (transaction.status === 'COMPLETED') {
+      const paymentUpdate = await tx.payment.updateMany({
+        where: { transactionId: id },
+        data: { type: paymentMethod, amount: total },
+      });
+      if (paymentUpdate.count === 0) {
+        await tx.payment.create({
+          data: { transactionId: id, type: paymentMethod, amount: total },
+        });
+      }
+    }
+
+    await tx.auditLog.create({
+      data: {
+        userId: cashier.id,
+        transactionId: id,
+        action: 'UPDATE_TRANSACTION',
+        entityType: 'Transaction',
+        entityId: id,
+        description: 'Updated transaction details',
+      },
+    });
+  });
+
+  return getTransactionById(prisma, id);
 }
 
 export async function updateTransactionPlayerRates(

@@ -32,6 +32,30 @@ export const CreateTransactionSchema = z.object({
   }
 });
 
+export const UpdateTransactionSchema = z.object({
+  courtId: z.string().min(1).optional(),
+  paymentMethod: PaymentMethodSchema.optional(),
+  players: z.array(TransactionPlayerSchema).min(1).max(100).optional().superRefine((players, ctx) => {
+    if (!players) return;
+
+    const seen = new Set<string>();
+    for (const [index, player] of players.entries()) {
+      const key = `${player.playerId}::${player.rateId}`;
+      if (seen.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Duplicate player-rate combination at index ${index}`,
+          path: [index],
+        });
+      }
+      seen.add(key);
+    }
+  }),
+}).strict().refine(
+  (data) => data.courtId !== undefined || data.paymentMethod !== undefined || data.players !== undefined,
+  { message: 'At least one transaction field must be provided' },
+);
+
 export const TransactionIdParamSchema = z.object({
   id: z.string().min(1),
 });
@@ -59,3 +83,4 @@ export const UpdateTransactionPlayerRatesSchema = z.object({
 });
 
 export type CreateTransactionRequest = z.infer<typeof CreateTransactionSchema>;
+export type UpdateTransactionRequest = z.infer<typeof UpdateTransactionSchema>;

@@ -21,6 +21,12 @@ export type UpdateTransactionPlayerRatesInput = {
   rateIds: string[];
 };
 
+export type UpdateTransactionInput = {
+  courtId?: string;
+  paymentMethod?: PaymentMethod;
+  players?: TransactionPlayerInput[];
+};
+
 export type TransactionResponse = {
   id: string;
   transactionCode: string;

@@ -3,8 +3,10 @@ import type { PrismaClient } from '@prisma/client';
 import {
   calculateTotalFromRates,
   createTransaction,
+  updateTransaction,
   updateTransactionPlayerRates,
 } from './transaction.service.js';
+import { UpdateTransactionSchema } from './transaction.schema.js';
 
 // ============================================================
 // SHARED FIXTURE HELPERS
@@ -388,6 +390,82 @@ describe('updateTransactionPlayerRates', () => {
     expect(txClient.payment.updateMany).toHaveBeenCalledWith({
       where: { transactionId: 'txn-1' },
       data: { amount: '250.00' },
+    });
+  });
+
+  describe('updateTransaction', () => {
+    it('updates court, payment method, and rates while recalculating amount', async () => {
+      const completedTransaction = {
+        id: 'txn-1',
+        status: 'COMPLETED',
+        paymentMethod: 'CARD',
+        courtId: 'court-2',
+        total: { toString: () => '125.00' },
+        court: { id: 'court-2', name: 'Court 2' },
+        cashier: { id: 'cashier-1', firstName: 'Cash', lastName: 'ier' },
+        payments: [],
+        players: [],
+      };
+      const txClient = {
+        transaction: { update: vi.fn().mockResolvedValue({ id: 'txn-1' }) },
+        transactionPlayer: {
+          deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+          create: vi.fn().mockResolvedValue({ id: 'tp-2' }),
+        },
+        payment: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        auditLog: { create: vi.fn().mockResolvedValue({ id: 'log-1' }) },
+      };
+      const prisma = {
+        transaction: {
+          findUnique: vi.fn()
+            .mockResolvedValueOnce({
+              id: 'txn-1',
+              status: 'COMPLETED',
+              paymentMethod: 'CASH',
+              courtId: 'court-1',
+              total: { toString: () => '100.00' },
+            })
+            .mockResolvedValueOnce(completedTransaction),
+        },
+        court: { findUnique: vi.fn().mockResolvedValue({ id: 'court-2', isActive: true }) },
+        player: { findMany: vi.fn().mockResolvedValue([{ id: 'player-1' }]) },
+        rate: {
+          findMany: vi.fn().mockResolvedValue([
+            { id: 'rate-2', amount: { toString: () => '125.00' } },
+          ]),
+        },
+        $transaction: vi.fn(async (callback) => callback(txClient)),
+      } as unknown as PrismaClient;
+      const input = UpdateTransactionSchema.parse({
+        courtId: 'court-2',
+        paymentMethod: 'CARD',
+        players: [{ playerId: 'player-1', rateId: 'rate-2' }],
+      });
+
+      await updateTransaction(prisma, 'txn-1', input, CASHIER);
+
+      expect(txClient.transaction.update).toHaveBeenCalledWith({
+        where: { id: 'txn-1' },
+        data: { courtId: 'court-2', paymentMethod: 'CARD', total: '125.00' },
+      });
+      expect(txClient.transactionPlayer.create).toHaveBeenCalledWith({
+        data: {
+          transactionId: 'txn-1',
+          playerId: 'player-1',
+          rateId: 'rate-2',
+          amount: '125.00',
+        },
+      });
+      expect(txClient.payment.updateMany).toHaveBeenCalledWith({
+        where: { transactionId: 'txn-1' },
+        data: { type: 'CARD', amount: '125.00' },
+      });
+    });
+
+    it('rejects attempts to edit status or amount directly', () => {
+      const result = UpdateTransactionSchema.safeParse({ status: 'UNPAID' });
+
+      expect(result.success).toBe(false);
     });
   });
 

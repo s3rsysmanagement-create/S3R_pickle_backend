@@ -13,6 +13,7 @@ import { requireRole } from '../../middleware/authorization.js';
 
 import {
   CreateTransactionSchema,
+  UpdateTransactionSchema,
   UpdateTransactionPlayerRatesSchema,
   TransactionPlayerRatesParamSchema,
   TransactionIdParamSchema,
@@ -25,6 +26,7 @@ import {
   getTransactions,
   markTransactionAsPaid,
   updateTransactionPlayerRates,
+  updateTransaction,
 } from './transaction.service.js';
 
 /*
@@ -115,6 +117,8 @@ const normalizeTransaction = (
     /*
      * Court name.
      */
+    courtId:
+      transaction.court.id,
     courtName:
       transaction.court.name,
 
@@ -412,6 +416,45 @@ export async function transactionRoutes(
           transaction,
         ),
       );
+    },
+  );
+
+  app.put(
+    '/api/transactions/:id',
+    {
+      preHandler: [
+        requireAuth,
+        requireRole('ADMIN', 'CASHIER'),
+      ],
+    },
+    async (request, reply) => {
+      const paramsResult = TransactionIdParamSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        reply.code(400);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Invalid transaction id',
+          paramsResult.error.flatten(),
+        );
+      }
+
+      const bodyResult = UpdateTransactionSchema.safeParse(request.body);
+      if (!bodyResult.success) {
+        reply.code(400);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Invalid transaction update data',
+          bodyResult.error.flatten(),
+        );
+      }
+
+      const transaction = await updateTransaction(
+        prisma,
+        paramsResult.data.id,
+        bodyResult.data,
+        request.user!,
+      );
+      return successResponse(normalizeTransaction(transaction));
     },
   );
 
