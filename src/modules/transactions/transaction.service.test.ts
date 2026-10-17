@@ -3,6 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 import {
   calculateTotalFromRates,
   createTransaction,
+  removePlayerFromTransaction,
   updateTransaction,
   updateTransactionPlayerRates,
 } from './transaction.service.js';
@@ -382,6 +383,7 @@ describe('updateTransactionPlayerRates', () => {
     expect(txClient.transactionPlayer.deleteMany).toHaveBeenCalledWith({
       where: { transactionId: 'txn-1', playerId: 'player-1' },
     });
+
     expect(txClient.transactionPlayer.create).toHaveBeenCalledTimes(2);
     expect(txClient.transaction.update).toHaveBeenCalledWith({
       where: { id: 'txn-1' },
@@ -481,5 +483,53 @@ describe('updateTransactionPlayerRates', () => {
         CASHIER,
       ),
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+});
+
+describe('removePlayerFromTransaction', () => {
+  it('allows a CASHIER to remove a player and recalculates a completed transaction', async () => {
+    const transactionUpdate = vi.fn().mockResolvedValue({});
+    const paymentUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const txClient = {
+      transactionPlayer: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findMany: vi.fn().mockResolvedValue([
+          { amount: { toString: () => '75.00' } },
+        ]),
+      },
+      transaction: { update: transactionUpdate },
+      payment: { updateMany: paymentUpdateMany, deleteMany: vi.fn() },
+      auditLog: { create: vi.fn().mockResolvedValue({}), updateMany: vi.fn() },
+    };
+    const prisma = {
+      transaction: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'txn-1',
+          status: 'COMPLETED',
+          paymentMethod: 'CASH',
+        }),
+      },
+      transactionPlayer: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'line-1' }]),
+      },
+      $transaction: vi.fn(async (callback) => callback(txClient)),
+    } as unknown as PrismaClient;
+
+    const result = await removePlayerFromTransaction(
+      prisma,
+      'txn-1',
+      'player-1',
+      CASHIER,
+    );
+
+    expect(result.message).toBe('Player removed from transaction successfully.');
+    expect(transactionUpdate).toHaveBeenCalledWith({
+      where: { id: 'txn-1' },
+      data: { total: '75.00' },
+    });
+    expect(paymentUpdateMany).toHaveBeenCalledWith({
+      where: { transactionId: 'txn-1' },
+      data: { amount: '75.00' },
+    });
   });
 });

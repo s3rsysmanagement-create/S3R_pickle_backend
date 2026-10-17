@@ -365,6 +365,100 @@ export async function updateTransaction(
   return getTransactionById(prisma, id);
 }
 
+export async function removePlayerFromTransaction(
+  prisma: PrismaClient,
+  transactionId: string,
+  playerId: string,
+  requestingUser: AuthenticatedUser,
+): Promise<{ message: string }> {
+  if (!requestingUser || !['ADMIN', 'CASHIER'].includes(requestingUser.role)) {
+    throw unauthorized('Authentication required');
+  }
+
+  const transaction = await prisma.transaction.findUnique({
+    where: { id: transactionId },
+  });
+  if (!transaction) {
+    throw notFound('Transaction not found');
+  }
+  if (transaction.status === 'CANCELLED') {
+    throw badRequest('Cannot remove a player from a cancelled transaction');
+  }
+
+  const playerLines = await prisma.transactionPlayer.findMany({
+    where: { transactionId, playerId },
+    select: { id: true },
+  });
+  if (playerLines.length === 0) {
+    throw notFound('Player is not part of this transaction');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.transactionPlayer.deleteMany({
+      where: { transactionId, playerId },
+    });
+
+    const remainingLines = await tx.transactionPlayer.findMany({
+      where: { transactionId },
+      select: { amount: true },
+    });
+
+    if (remainingLines.length === 0) {
+      await tx.payment.deleteMany({ where: { transactionId } });
+      await tx.auditLog.updateMany({
+        where: { transactionId },
+        data: { transactionId: null },
+      });
+      await tx.transaction.delete({ where: { id: transactionId } });
+      await tx.auditLog.create({
+        data: {
+          userId: requestingUser.id,
+          action: 'REMOVE_PLAYER_FROM_TRANSACTION',
+          entityType: 'Transaction',
+          entityId: transactionId,
+          description: `Removed the last player ${playerId}; transaction was deleted`,
+        },
+      });
+      return;
+    }
+
+    const total = calculateTotalFromRates(remainingLines);
+    await tx.transaction.update({
+      where: { id: transactionId },
+      data: { total },
+    });
+
+    if (transaction.status === 'COMPLETED') {
+      const paymentUpdate = await tx.payment.updateMany({
+        where: { transactionId },
+        data: { amount: total },
+      });
+      if (paymentUpdate.count === 0) {
+        await tx.payment.create({
+          data: {
+            transactionId,
+            type: transaction.paymentMethod,
+            amount: total,
+          },
+        });
+      }
+    }
+
+    await tx.auditLog.create({
+      data: {
+        userId: requestingUser.id,
+        transactionId,
+        action: 'REMOVE_PLAYER_FROM_TRANSACTION',
+        entityType: 'Transaction',
+        entityId: transactionId,
+        description: `Removed player ${playerId} from transaction`,
+      },
+    });
+  });
+
+  return { message: 'Player removed from transaction successfully.' };
+}
+
 export async function updateTransactionPlayerRates(
   prisma: PrismaClient,
   transactionId: string,

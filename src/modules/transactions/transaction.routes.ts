@@ -25,6 +25,7 @@ import {
   getTransactionById,
   getTransactions,
   markTransactionAsPaid,
+  removePlayerFromTransaction,
   updateTransactionPlayerRates,
   updateTransaction,
 } from './transaction.service.js';
@@ -590,6 +591,36 @@ export async function transactionRoutes(
           transaction,
         ),
       );
+    },
+  );
+
+  app.delete(
+    '/api/transactions/:transactionId/players/:playerId',
+    {
+      preHandler: [
+        requireAuth,
+        requireRole('ADMIN', 'CASHIER'),
+      ],
+    },
+    async (request, reply) => {
+      const paramsResult = TransactionPlayerRatesParamSchema.safeParse(request.params);
+      if (!paramsResult.success) {
+        reply.code(400);
+        return errorResponse(
+          'VALIDATION_ERROR',
+          'Invalid transaction/player id',
+          paramsResult.error.flatten(),
+        );
+      }
+
+      const result = await removePlayerFromTransaction(
+        prisma,
+        paramsResult.data.transactionId,
+        paramsResult.data.playerId,
+        request.user!,
+      );
+
+      return successResponse(result);
     },
   );
 
