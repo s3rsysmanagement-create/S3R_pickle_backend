@@ -88,4 +88,43 @@ describe('getOverview', () => {
     expect(paymentAggregateQueries[1].where.paidAt.gte).toEqual(new Date(2024, 1, 1));
     expect(paymentAggregateQueries[29].where.paidAt.lt).toEqual(new Date(2024, 2, 1));
   });
+
+  it('filters yearly overview metrics to the selected year', async () => {
+    const paymentAggregateQueries: Array<{
+      where: { paidAt: { gte: Date; lt: Date } };
+    }> = [];
+    const prisma = {
+      payment: {
+        aggregate: async (query: { where: { paidAt: { gte: Date; lt: Date } } }) => {
+          paymentAggregateQueries.push(query);
+          return { _sum: { amount: 0 } };
+        },
+        groupBy: async () => [],
+      },
+      expense: {
+        aggregate: async () => ({ _sum: { amount: 0 } }),
+      },
+      transaction: {
+        count: async () => 0,
+        groupBy: async () => [],
+      },
+      transactionPlayer: {
+        count: async () => 0,
+        groupBy: async () => [],
+      },
+      court: { findUnique: async () => null },
+      user: { findUnique: async () => null },
+    } as any;
+
+    const result = await getOverview(prisma, 'yearly', undefined, 2023);
+
+    expect(result.stats).toContainEqual(
+      expect.objectContaining({ label: 'Revenue 2023' }),
+    );
+    expect(paymentAggregateQueries[0].where.paidAt.gte).toEqual(new Date(2023, 0, 1));
+    expect(paymentAggregateQueries[0].where.paidAt.lt).toEqual(new Date(2024, 0, 1));
+    expect(result.revenueTrend).toHaveLength(5);
+    expect(result.revenueTrend[0].sortKey).toBe('2019');
+    expect(result.revenueTrend[4].sortKey).toBe('2023');
+  });
 });

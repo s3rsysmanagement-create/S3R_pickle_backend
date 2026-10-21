@@ -76,20 +76,26 @@ export async function analyticsRoutes(app: FastifyInstance) {
         });
       }
 
+      const hasInvalidMonth =
+        month !== undefined &&
+        (!Number.isInteger(month) || month < 1 || month > 12);
+      const hasInvalidYear =
+        year !== undefined &&
+        (!Number.isInteger(year) || year < 1900 || year > 9999);
+      const isIncompleteMonthlyFilter =
+        (month === undefined) !== (year === undefined);
+      const yearFilterNotAllowed =
+        year !== undefined && month === undefined && period !== 'yearly';
+
       if (
-        (month === undefined) !== (year === undefined) ||
-        (month !== undefined &&
-          (!Number.isInteger(month) ||
-            month < 1 ||
-            month > 12 ||
-            year === undefined ||
-            !Number.isInteger(year) ||
-            year < 1900 ||
-            year > 9999))
+        hasInvalidMonth ||
+        hasInvalidYear ||
+        isIncompleteMonthlyFilter && period !== 'yearly' ||
+        yearFilterNotAllowed
       ) {
         return reply.status(400).send({
           success: false,
-          message: 'Provide a valid month (1-12) and year (1900-9999) together.',
+          message: 'Provide a valid month (1-12) with year for monthly analytics, or a valid year for yearly analytics.',
         });
       }
 

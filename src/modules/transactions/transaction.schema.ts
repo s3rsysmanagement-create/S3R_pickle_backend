@@ -35,6 +35,7 @@ export const CreateTransactionSchema = z.object({
 export const UpdateTransactionSchema = z.object({
   courtId: z.string().min(1).optional(),
   paymentMethod: PaymentMethodSchema.optional(),
+  status: z.enum(['PAID', 'COMPLETED', 'UNPAID']).optional(),
   players: z.array(TransactionPlayerSchema).min(1).max(100).optional().superRefine((players, ctx) => {
     if (!players) return;
 
@@ -52,7 +53,10 @@ export const UpdateTransactionSchema = z.object({
     }
   }),
 }).strict().refine(
-  (data) => data.courtId !== undefined || data.paymentMethod !== undefined || data.players !== undefined,
+  (data) => data.courtId !== undefined
+    || data.paymentMethod !== undefined
+    || data.status !== undefined
+    || data.players !== undefined,
   { message: 'At least one transaction field must be provided' },
 );
 

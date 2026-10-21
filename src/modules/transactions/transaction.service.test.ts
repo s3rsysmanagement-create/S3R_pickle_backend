@@ -441,6 +441,7 @@ describe('updateTransactionPlayerRates', () => {
       const input = UpdateTransactionSchema.parse({
         courtId: 'court-2',
         paymentMethod: 'CARD',
+        status: 'PAID',
         players: [{ playerId: 'player-1', rateId: 'rate-2' }],
       });
 
@@ -448,7 +449,7 @@ describe('updateTransactionPlayerRates', () => {
 
       expect(txClient.transaction.update).toHaveBeenCalledWith({
         where: { id: 'txn-1' },
-        data: { courtId: 'court-2', paymentMethod: 'CARD', total: '125.00' },
+        data: { courtId: 'court-2', paymentMethod: 'CARD', status: 'COMPLETED', total: '125.00' },
       });
       expect(txClient.transactionPlayer.create).toHaveBeenCalledWith({
         data: {
@@ -464,10 +465,102 @@ describe('updateTransactionPlayerRates', () => {
       });
     });
 
-    it('rejects attempts to edit status or amount directly', () => {
-      const result = UpdateTransactionSchema.safeParse({ status: 'UNPAID' });
+    it('accepts paid and unpaid status edits but rejects unsupported status values', () => {
+      expect(UpdateTransactionSchema.safeParse({ status: 'UNPAID' }).success).toBe(true);
+      expect(UpdateTransactionSchema.safeParse({ status: 'PAID' }).success).toBe(true);
+      expect(UpdateTransactionSchema.safeParse({ status: 'CANCELLED' }).success).toBe(false);
 
-      expect(result.success).toBe(false);
+      const amountResult = UpdateTransactionSchema.safeParse({ total: 100 });
+      expect(amountResult.success).toBe(false);
+    });
+
+    it('switches to unpaid and removes associated payment records', async () => {
+      const txClient = {
+        transaction: { update: vi.fn().mockResolvedValue({ id: 'txn-1' }) },
+        payment: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }) },
+        auditLog: { create: vi.fn().mockResolvedValue({ id: 'log-1' }) },
+      };
+      const prisma = {
+        transaction: {
+          findUnique: vi.fn()
+            .mockResolvedValueOnce({
+              id: 'txn-1',
+              status: 'COMPLETED',
+              paymentMethod: 'CASH',
+              courtId: 'court-1',
+              total: { toString: () => '100.00' },
+            })
+            .mockResolvedValueOnce({
+              id: 'txn-1',
+              court: { id: 'court-1', name: 'Court 1' },
+              cashier: { id: 'cashier-1', firstName: 'Cash', lastName: 'ier' },
+              payments: [],
+              players: [],
+            }),
+        },
+        $transaction: vi.fn(async (callback) => callback(txClient)),
+      } as unknown as PrismaClient;
+
+      await updateTransaction(
+        prisma,
+        'txn-1',
+        UpdateTransactionSchema.parse({ status: 'UNPAID' }),
+        CASHIER,
+      );
+
+      expect(txClient.transaction.update).toHaveBeenCalledWith({
+        where: { id: 'txn-1' },
+        data: { status: 'UNPAID' },
+      });
+      expect(txClient.payment.deleteMany).toHaveBeenCalledWith({
+        where: { transactionId: 'txn-1' },
+      });
+    });
+
+    it('switches an unpaid transaction to paid and creates a payment record', async () => {
+      const txClient = {
+        transaction: { update: vi.fn().mockResolvedValue({ id: 'txn-1' }) },
+        payment: {
+          updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+          create: vi.fn().mockResolvedValue({ id: 'pay-1' }),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({ id: 'log-1' }) },
+      };
+      const prisma = {
+        transaction: {
+          findUnique: vi.fn()
+            .mockResolvedValueOnce({
+              id: 'txn-1',
+              status: 'UNPAID',
+              paymentMethod: 'CASH',
+              courtId: 'court-1',
+              total: { toString: () => '100.00' },
+            })
+            .mockResolvedValueOnce({
+              id: 'txn-1',
+              court: { id: 'court-1', name: 'Court 1' },
+              cashier: { id: 'cashier-1', firstName: 'Cash', lastName: 'ier' },
+              payments: [{ id: 'pay-1' }],
+              players: [],
+            }),
+        },
+        $transaction: vi.fn(async (callback) => callback(txClient)),
+      } as unknown as PrismaClient;
+
+      await updateTransaction(
+        prisma,
+        'txn-1',
+        UpdateTransactionSchema.parse({ status: 'PAID' }),
+        CASHIER,
+      );
+
+      expect(txClient.transaction.update).toHaveBeenCalledWith({
+        where: { id: 'txn-1' },
+        data: { status: 'COMPLETED' },
+      });
+      expect(txClient.payment.create).toHaveBeenCalledWith({
+        data: { transactionId: 'txn-1', type: 'CASH', amount: '100.00' },
+      });
     });
   });
 

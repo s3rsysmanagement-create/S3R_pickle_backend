@@ -269,9 +269,12 @@ export async function getOverview(
 ) {
   const now = new Date();
   const hasSelectedMonth = selectedMonth !== undefined && selectedYear !== undefined;
+  const hasSelectedYear = selectedYear !== undefined;
   const reportingDate = hasSelectedMonth
-    ? new Date(selectedYear!, selectedMonth! - 1, 1)
-    : now;
+    ? new Date(selectedYear, selectedMonth - 1, 1)
+    : hasSelectedYear && period === 'yearly'
+      ? new Date(selectedYear, 0, 1)
+      : now;
 
   /* =======================================================
      REPORTING PERIOD
@@ -283,6 +286,9 @@ export async function getOverview(
   if (hasSelectedMonth) {
     periodStart = startOfMonth(reportingDate);
     periodEnd = addMonths(periodStart, 1);
+  } else if (hasSelectedYear && period === 'yearly') {
+    periodStart = startOfYear(reportingDate);
+    periodEnd = addYears(periodStart, 1);
   } else if (period === 'daily') {
     periodStart =
       startOfDay(now);
@@ -894,6 +900,8 @@ export async function getOverview(
   const periodLabel =
     hasSelectedMonth
       ? reportingDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : hasSelectedYear && period === 'yearly'
+        ? String(selectedYear)
       : period === 'daily'
       ? 'Today'
       : period === 'monthly'

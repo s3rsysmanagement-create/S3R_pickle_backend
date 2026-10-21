@@ -313,7 +313,8 @@ export async function transactionRoutes(
       ],
     },
 
-    async () => {
+    async (_request, reply) => {
+      reply.header('Cache-Control', 'no-store');
 
       /*
        * Get transactions from database.
@@ -374,6 +375,7 @@ export async function transactionRoutes(
       request,
       reply,
     ) => {
+      reply.header('Cache-Control', 'no-store');
 
       /*
        * Validate transaction ID.

@@ -24,6 +24,7 @@ export type UpdateTransactionPlayerRatesInput = {
 export type UpdateTransactionInput = {
   courtId?: string;
   paymentMethod?: PaymentMethod;
+  status?: 'PAID' | 'COMPLETED' | 'UNPAID';
   players?: TransactionPlayerInput[];
 };
 

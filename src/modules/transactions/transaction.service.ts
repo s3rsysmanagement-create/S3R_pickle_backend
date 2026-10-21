@@ -308,6 +308,11 @@ export async function updateTransaction(
   }
 
   const paymentMethod = input.paymentMethod ?? transaction.paymentMethod;
+  const status = input.status === undefined
+    ? transaction.status
+    : input.status === 'UNPAID'
+      ? 'UNPAID'
+      : 'COMPLETED';
   await prisma.$transaction(async (tx) => {
     if (input.players !== undefined) {
       await tx.transactionPlayer.deleteMany({ where: { transactionId: id } });
@@ -334,11 +339,12 @@ export async function updateTransaction(
       data: {
         ...(input.courtId !== undefined ? { courtId } : {}),
         ...(input.paymentMethod !== undefined ? { paymentMethod } : {}),
+        ...(input.status !== undefined ? { status } : {}),
         ...(input.players !== undefined ? { total } : {}),
       },
     });
 
-    if (transaction.status === 'COMPLETED') {
+    if (status === 'COMPLETED') {
       const paymentUpdate = await tx.payment.updateMany({
         where: { transactionId: id },
         data: { type: paymentMethod, amount: total },
@@ -348,6 +354,8 @@ export async function updateTransaction(
           data: { transactionId: id, type: paymentMethod, amount: total },
         });
       }
+    } else {
+      await tx.payment.deleteMany({ where: { transactionId: id } });
     }
 
     await tx.auditLog.create({
